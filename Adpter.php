@@ -37,4 +37,35 @@ class SuapAdapter {
         return true;
     }
 
+    /**
+     * Valida o token de acesso recebido do SUAP.
+     * 
+     * @param string|null $token O token para validação (se não passado, usa o da classe).
+     * @return bool
+     */
+    public function validate_token(?string $token = null): bool {
+        $tokenToValidate = $token ?? $this->token;
+
+        if (empty($tokenToValidate)) {
+            return false;
+        }
+
+        $tokenParts = explode('.', $tokenToValidate);
+        if (count($tokenParts) === 3) {
+            $payload = json_decode(base64_decode($tokenParts[1]), true);
+            
+            // Verifica se o token expirou
+            if (isset($payload['exp']) && $payload['exp'] < time()) {
+                return false;
+            }
+            
+            return true;
+        }
+
+        return false;
+    }
+
+    public function get_data(): array {
+        return $this->data;
+    }
 }
