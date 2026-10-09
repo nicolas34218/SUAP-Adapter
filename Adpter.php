@@ -1,48 +1,38 @@
 <?php
 
+namespace App\Services;
+
+use InvalidArgumentException;
+
 class SuapAdapter {
     private array $data = [];
     private ?string $token = null;
 
-    /**
-     * Recebe e armazena os dados vindos do client SUAP.
-     * 
-     * @param array $data O payload de dados do usuário/autenticação.
-     * @param string|null $token O token de acesso opcional, caso enviado junto.
-     */
-    public function input_data(array $data, ?string $token = null): void {
-        $this->data = $data;
+    private const CAMPOS_PERMITIDOS = [
+        'matricula',
+        'nome_usual',
+        'nome',
+        'email',
+        'tipo_vinculo',
+        'curso',
+        'semestre',
+        'campus',
+        'url_foto',
+        'foto',
+        'turno'
+    ];
+
+    public function input_data(array $payload_bruto, ?string $token = null): void {
+        $this->data = array_intersect_key(
+            $payload_bruto, 
+            array_flip(self::CAMPOS_PERMITIDOS)
+        );
+
         if ($token !== null) {
             $this->token = $token;
         }
     }
 
-    /**
-     * Valida se os dados recebidos contêm as chaves obrigatórias para sua aplicação.
-     * 
-     * @param array $required_keys Lista de chaves esperadas (ex: ['matricula', 'email']).
-     * @return bool Retorna true se todos os campos necessários estiverem presentes.
-     */
-    public function validate_data(array $required_keys): bool {
-        if (empty($this->data)) {
-            return false;
-        }
-
-        foreach ($required_keys as $key) {
-            if (!array_key_exists($key, $this->data)) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * Valida o token de acesso recebido do SUAP.
-     * 
-     * @param string|null $token O token para validação (se não passado, usa o da classe).
-     * @return bool
-     */
     public function validate_token(?string $token = null): bool {
         $tokenToValidate = $token ?? $this->token;
 
@@ -54,18 +44,57 @@ class SuapAdapter {
         if (count($tokenParts) === 3) {
             $payload = json_decode(base64_decode($tokenParts[1]), true);
             
-            // Verifica se o token expirou
             if (isset($payload['exp']) && $payload['exp'] < time()) {
                 return false;
             }
-            
             return true;
         }
 
         return false;
     }
 
+    public function validate_data(?array $required_keys = null): bool {
+        //Valores necessarios caso o controller não especifique (ha se pensar nestes valores)
+        $keysToValidate = $required_keys ?? ['matricula', 'email', 'tipo_vinculo'];
+
+        foreach ($keysToValidate as $key) {
+            if (empty($this->data[$key])) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    
+    // Valida a matrícula e traduz as chaves do SUAP para as colunas do Sisref.
+    
     public function get_data(): array {
-        return $this->data;
+        if (empty($this->data['matricula'])) {
+            throw new InvalidArgumentException("Matrícula não encontrada!");
+        }
+
+        $matricula = (string) $this->data['matricula'];
+
+        if (!preg_match('/^[0-9]{10,15}$/', $matricula)) {
+            throw new InvalidArgumentException("Matrícula inválida recebida: {$matricula}");
+        }
+
+        return [
+            // Dados para o Model User
+            'email'        => $this->data['email'] ?? null,
+            'type'         => $this->data['tipo_vinculo'] ?? null,
+            
+            // Dados de ambos os Models
+            'name'         => $this->data['nome_usual'] ?? $this->data['nome'] ?? null,
+            'campus_id'    => $this->data['campus'] ?? null,
+            
+            // Dados para o Model Student
+            'mat'          => $matricula,
+            'course_id'    => $this->data['curso'] ?? null,
+            'semRegular'   => $this->data['semestre'] ?? null,
+            'shift_id'     => $this->data['turno'] ?? null,
+            'photo'        => $this->data['url_foto'] ?? $this->data['foto'] ?? null,
+        ];
     }
 }
